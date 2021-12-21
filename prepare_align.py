@@ -1,7 +1,7 @@
 import argparse
 
 from utils.tools import get_configs_of
-from preprocessor import ljspeech, vctk
+from preprocessor import ljspeech, vctk, dailytalk
 
 
 def main(config):
@@ -9,6 +9,8 @@ def main(config):
         ljspeech.prepare_align(config)
     if "VCTK" in config["dataset"]:
         vctk.prepare_align(config)
+    if "DailyTalk" in config["dataset"]:
+        dailytalk.prepare_align(config)
 
 
 if __name__ == "__main__":
