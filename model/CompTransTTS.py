@@ -38,7 +38,7 @@ class CompTransTTS(nn.Module):
         )
         self.postnet = PostNet()
 
-        self.speaker_emb = None
+        self.speaker_emb = self.emotion_emb = None
         if model_config["multi_speaker"]:
             self.embedder_type = preprocess_config["preprocessing"]["speaker_embedder"]
             if self.embedder_type == "none":
@@ -58,6 +58,18 @@ class CompTransTTS(nn.Module):
                     model_config["external_speaker_dim"],
                     model_config["transformer"]["encoder_hidden"],
                 )
+        if model_config["multi_emotion"]:
+            with open(
+                os.path.join(
+                    preprocess_config["path"]["preprocessed_path"], "emotions.json"
+                ),
+                "r",
+            ) as f:
+                n_emotion = len(json.load(f))
+            self.emotion_emb = nn.Embedding(
+                n_emotion,
+                model_config["transformer"]["encoder_hidden"],
+            )
 
     def forward(
         self,
@@ -73,11 +85,18 @@ class CompTransTTS(nn.Module):
         d_targets=None,
         attn_priors=None,
         spker_embeds=None,
+        emotions=None,
         p_control=1.0,
         e_control=1.0,
         d_control=1.0,
         step=None,
     ):
+        print("emotions:", emotions)
+        emotion_embeds = None
+        if self.emotion_emb is not None:
+            emotion_embeds = self.emotion_emb(emotions)
+        print("emotion_embeds.shape:", emotion_embeds.shape)
+        exit(0)
         src_masks = get_mask_from_lengths(src_lens, max_src_len)
         mel_masks = (
             get_mask_from_lengths(mel_lens, max_mel_len)

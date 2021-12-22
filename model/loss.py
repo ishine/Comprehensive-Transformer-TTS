@@ -30,8 +30,7 @@ class CompTransTTSLoss(nn.Module):
             pitch_targets,
             energy_targets,
             duration_targets,
-            _,
-            _,
+            *_,
         ) = inputs[6:]
         (
             mel_predictions,

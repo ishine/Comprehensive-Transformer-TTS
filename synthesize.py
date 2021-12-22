@@ -93,8 +93,9 @@ def synthesize(device, model, args, configs, vocoder, batchs, control_values):
         with torch.no_grad():
             # Forward
             output = model(
-                *(batch[2:-1]),
-                spker_embeds=batch[-1],
+                *(batch[2:-2]),
+                spker_embeds=batch[-2],
+                emotions=batch[-1],
                 p_control=pitch_control,
                 e_control=energy_control,
                 d_control=duration_control

@@ -20,14 +20,17 @@ class Dataset(Dataset):
         self.learn_alignment = model_config["duration_modeling"]["learn_alignment"]
         self.load_spker_embed = model_config["multi_speaker"] \
             and preprocess_config["preprocessing"]["speaker_embedder"] != 'none'
+        self.load_emotion = model_config["multi_emotion"]
 
         self.pitch_level_tag, self.energy_level_tag, *_ = get_variance_level(preprocess_config, model_config)
 
-        self.basename, self.speaker, self.text, self.raw_text = self.process_meta(
+        self.basename, self.speaker, self.text, self.raw_text, self.emotion = self.process_meta(
             filename
         )
         with open(os.path.join(self.preprocessed_path, "speakers.json")) as f:
             self.speaker_map = json.load(f)
+        with open(os.path.join(self.preprocessed_path, "emotions.json")) as f:
+            self.emotion_map = json.load(f)
         self.sort = sort
         self.drop_last = drop_last
 
@@ -38,6 +41,7 @@ class Dataset(Dataset):
         basename = self.basename[idx]
         speaker = self.speaker[idx]
         speaker_id = self.speaker_map[speaker]
+        emotion_id = self.emotion_map[self.emotion[idx]] if self.load_emotion else None
         raw_text = self.raw_text[idx]
         phone = np.array(text_to_sequence(self.text[idx], self.cleaners))
         mel_path = os.path.join(
@@ -91,6 +95,7 @@ class Dataset(Dataset):
             "duration": duration,
             "attn_prior": attn_prior,
             "spker_embed": spker_embed,
+            "emotion": emotion_id,
         }
 
         return sample
@@ -103,13 +108,19 @@ class Dataset(Dataset):
             speaker = []
             text = []
             raw_text = []
+            emotion = []
             for line in f.readlines():
-                n, s, t, r = line.strip("\n").split("|")
+                if self.load_emotion:
+                    n, s, t, r, e = line.strip("\n").split("|")
+                else:
+                    n, s, t, r, *_ = line.strip("\n").split("|")
                 name.append(n)
                 speaker.append(s)
                 text.append(t)
                 raw_text.append(r)
-            return name, speaker, text, raw_text
+                if self.load_emotion:
+                    emotion.append(e)
+            return name, speaker, text, raw_text, emotion
 
     def reprocess(self, data, idxs):
         ids = [data[idx]["id"] for idx in idxs]
@@ -123,6 +134,7 @@ class Dataset(Dataset):
         attn_priors = [data[idx]["attn_prior"] for idx in idxs] if self.learn_alignment else None
         spker_embeds = np.concatenate(np.array([data[idx]["spker_embed"] for idx in idxs]), axis=0) \
             if self.load_spker_embed else None
+        emotions = np.array([data[idx]["emotion"] for idx in idxs]) if self.load_emotion else None
 
         text_lens = np.array([text.shape[0] for text in texts])
         mel_lens = np.array([mel.shape[0] for mel in mels])
@@ -152,6 +164,7 @@ class Dataset(Dataset):
             durations,
             attn_priors,
             spker_embeds,
+            emotions,
         )
 
     def collate_fn(self, data):
@@ -182,16 +195,15 @@ class TextDataset(Dataset):
         self.preprocessed_path = preprocess_config["path"]["preprocessed_path"]
         self.load_spker_embed = model_config["multi_speaker"] \
             and preprocess_config["preprocessing"]["speaker_embedder"] != 'none'
+        self.load_emotion = model_config["multi_emotion"]
 
-        self.basename, self.speaker, self.text, self.raw_text = self.process_meta(
+        self.basename, self.speaker, self.text, self.raw_text, self.emotion = self.process_meta(
             filepath
         )
-        with open(
-            os.path.join(
-                preprocess_config["path"]["preprocessed_path"], "speakers.json"
-            )
-        ) as f:
+        with open(os.path.join(self.preprocessed_path, "speakers.json")) as f:
             self.speaker_map = json.load(f)
+        with open(os.path.join(self.preprocessed_path, "emotions.json")) as f:
+            self.emotion_map = json.load(f)
 
     def __len__(self):
         return len(self.text)
@@ -200,6 +212,7 @@ class TextDataset(Dataset):
         basename = self.basename[idx]
         speaker = self.speaker[idx]
         speaker_id = self.speaker_map[speaker]
+        emotion_id = self.emotion_map[self.emotion[idx]] if self.load_emotion else None
         raw_text = self.raw_text[idx]
         phone = np.array(text_to_sequence(self.text[idx], self.cleaners))
         spker_embed = np.load(os.path.join(
@@ -208,7 +221,7 @@ class TextDataset(Dataset):
             "{}-spker_embed.npy".format(speaker),
         )) if self.load_spker_embed else None
 
-        return (basename, speaker_id, phone, raw_text, spker_embed)
+        return (basename, speaker_id, phone, raw_text, spker_embed, emotion_id)
 
     def process_meta(self, filename):
         with open(filename, "r", encoding="utf-8") as f:
@@ -216,13 +229,19 @@ class TextDataset(Dataset):
             speaker = []
             text = []
             raw_text = []
+            emotion = []
             for line in f.readlines():
-                n, s, t, r = line.strip("\n").split("|")
+                if self.load_emotion:
+                    n, s, t, r, e = line.strip("\n").split("|")
+                else:
+                    n, s, t, r, *_ = line.strip("\n").split("|")
                 name.append(n)
                 speaker.append(s)
                 text.append(t)
                 raw_text.append(r)
-            return name, speaker, text, raw_text
+                if self.load_emotion:
+                    emotion.append(e)
+            return name, speaker, text, raw_text, emotion
 
     def collate_fn(self, data):
         ids = [d[0] for d in data]
@@ -232,7 +251,8 @@ class TextDataset(Dataset):
         text_lens = np.array([text.shape[0] for text in texts])
         spker_embeds = np.concatenate(np.array([d[4] for d in data]), axis=0) \
             if self.load_spker_embed else None
+        emotions = np.array([d[5] for d in data]) if self.load_emotion else None
 
         texts = pad_1D(texts)
 
-        return ids, raw_texts, speakers, texts, text_lens, max(text_lens), spker_embeds
+        return ids, raw_texts, speakers, texts, text_lens, max(text_lens), spker_embeds, emotions
