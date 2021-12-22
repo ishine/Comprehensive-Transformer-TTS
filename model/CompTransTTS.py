@@ -91,12 +91,6 @@ class CompTransTTS(nn.Module):
         d_control=1.0,
         step=None,
     ):
-        print("emotions:", emotions)
-        emotion_embeds = None
-        if self.emotion_emb is not None:
-            emotion_embeds = self.emotion_emb(emotions)
-        print("emotion_embeds.shape:", emotion_embeds.shape)
-        exit(0)
         src_masks = get_mask_from_lengths(src_lens, max_src_len)
         mel_masks = (
             get_mask_from_lengths(mel_lens, max_mel_len)
@@ -114,6 +108,10 @@ class CompTransTTS(nn.Module):
                 assert spker_embeds is not None, "Speaker embedding should not be None"
                 speaker_embeds = self.speaker_emb(spker_embeds) # [B, H]
 
+        emotion_embeds = None
+        if self.emotion_emb is not None:
+            emotion_embeds = self.emotion_emb(emotions)
+
         (
             output,
             p_targets,
@@ -127,6 +125,7 @@ class CompTransTTS(nn.Module):
             attn_outs,
         ) = self.variance_adaptor(
             speaker_embeds,
+            emotion_embeds,
             texts,
             text_embeds,
             src_lens,

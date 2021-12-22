@@ -155,6 +155,7 @@ class VarianceAdaptor(nn.Module):
                 n_text_channels=model_config["transformer"]["encoder_hidden"],
                 temperature=model_config["duration_modeling"]["aligner_temperature"],
                 multi_speaker=model_config["multi_speaker"],
+                multi_emotion=model_config["multi_emotion"],
             )
 
         pitch_level_tag, energy_level_tag, self.pitch_feature_level, self.energy_feature_level = \
@@ -287,6 +288,7 @@ class VarianceAdaptor(nn.Module):
     def forward(
         self,
         speaker_embedding,
+        emotion_embedding,
         text,
         text_embedding,
         src_len,
@@ -309,6 +311,10 @@ class VarianceAdaptor(nn.Module):
             x = x + speaker_embedding.unsqueeze(1).expand(
                 -1, text.shape[1], -1
             )
+        if emotion_embedding is not None:
+            x = x + emotion_embedding.unsqueeze(1).expand(
+                -1, text.shape[1], -1
+            )
 
         log_duration_prediction = self.duration_predictor(x, src_mask)
         duration_rounded = torch.clamp(
@@ -326,6 +332,7 @@ class VarianceAdaptor(nn.Module):
                 src_mask.unsqueeze(-1),
                 attn_prior.transpose(1, 2),
                 speaker_embedding,
+                emotion_embedding,
             )
             attn_hard = self.binarize_attention_parallel(attn_soft, src_len, mel_len)
             attn_hard_dur = attn_hard.sum(2)[:, 0, :]
@@ -390,7 +397,8 @@ class AlignmentEncoder(torch.nn.Module):
                 n_att_channels,
                 n_text_channels,
                 temperature,
-                multi_speaker):
+                multi_speaker,
+                multi_emotion):
         super().__init__()
         self.temperature = temperature
         self.softmax = torch.nn.Softmax(dim=3)
@@ -440,8 +448,11 @@ class AlignmentEncoder(torch.nn.Module):
         if multi_speaker:
             self.key_spk_proj = LinearNorm(n_text_channels, n_text_channels)
             self.query_spk_proj = LinearNorm(n_text_channels, n_mel_channels)
+        if multi_emotion:
+            self.key_emo_proj = LinearNorm(n_text_channels, n_text_channels)
+            self.query_emo_proj = LinearNorm(n_text_channels, n_mel_channels)
 
-    def forward(self, queries, keys, mask=None, attn_prior=None, speaker_embed=None):
+    def forward(self, queries, keys, mask=None, attn_prior=None, speaker_embed=None, emotion_embed=None):
         """Forward pass of the aligner encoder.
         Args:
             queries (torch.tensor): B x C x T1 tensor (probably going to be mel data).
@@ -449,6 +460,7 @@ class AlignmentEncoder(torch.nn.Module):
             mask (torch.tensor): uint8 binary mask for variable length entries (should be in the T2 domain).
             attn_prior (torch.tensor): prior for attention matrix.
             speaker_embed (torch.tensor): B x C tnesor of speaker embedding for multi-speaker scheme.
+            emotion_embed (torch.tensor): B x C tnesor of emotion embedding for multi-emotion scheme.
         Output:
             attn (torch.tensor): B x 1 x T1 x T2 attention mask. Final dim T2 should sum to 1.
             attn_logprob (torch.tensor): B x 1 x T1 x T2 log-prob attention mask.
@@ -458,6 +470,13 @@ class AlignmentEncoder(torch.nn.Module):
                 -1, keys.shape[-1], -1
             )).transpose(1, 2)
             queries = queries + self.query_spk_proj(speaker_embed.unsqueeze(1).expand(
+                -1, queries.shape[-1], -1
+            )).transpose(1, 2)
+        if emotion_embed is not None:
+            keys = keys + self.key_emo_proj(emotion_embed.unsqueeze(1).expand(
+                -1, keys.shape[-1], -1
+            )).transpose(1, 2)
+            queries = queries + self.query_emo_proj(emotion_embed.unsqueeze(1).expand(
                 -1, queries.shape[-1], -1
             )).transpose(1, 2)
         keys_enc = self.key_proj(keys)  # B x n_attn_dims x T2
